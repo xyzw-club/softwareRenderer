@@ -52,13 +52,21 @@ XYZWRenderer.prototype = {
     var _this = this;
     scene.traverseVisible( function ( object ) {
       if (object instanceof THREE.Mesh) {
-        var vertices = object.geometry.vertices;
-        for (var v=0, vl=vertices.length; v < vl; v++) {
-          var vertex = _this.projectVertex(vertices[v], 
-            object.matrixWorld, 
-            viewProjectionMatrix);
-          if (vertex.visible) {
-            renderList.push(vertex);
+        var faces = object.geometry.faces;
+
+
+        for (var v=0, vl=faces.length; v < vl; v++) {
+          var face = faces[v];
+          var v1 = object.geometry.vertices[face.a];
+          var v2 = object.geometry.vertices[face.b];
+          var v3 = object.geometry.vertices[face.c];
+
+          v1 = _this.projectVertex(v1, object.matrixWorld, viewProjectionMatrix);
+          v2 = _this.projectVertex(v2, object.matrixWorld, viewProjectionMatrix);
+          v3 = _this.projectVertex(v3, object.matrixWorld, viewProjectionMatrix);
+
+          if (v1.visible || v2.visible || v3.visible) {
+            renderList.push([v1, v2, v3])
           }
         }
       }
@@ -68,11 +76,26 @@ XYZWRenderer.prototype = {
     var context = canvas.getContext( '2d', {} );
     context.clearRect(0, 0, canvas.width, canvas.height);
 
-    for (var v=0, vl=renderList.length; v < vl; v++) {
-      var vertex = renderList[v];
+    var to_canvas_position = function(vertex) {
       var canvas_x = (vertex.positionScreen.x / 2.0 + 0.5) * canvas.width;
       var canvas_y = (vertex.positionScreen.y / -2.0 + 0.5) * canvas.height;
-      context.fillRect(canvas_x, canvas_y , 4, 4); 
+      return {x: canvas_x, y: canvas_y};
+    }
+
+    for (var v=0, vl=renderList.length; v < vl; v++) {
+      var face = renderList[v];
+      var vv1 = to_canvas_position(face[0]);
+      var vv2 = to_canvas_position(face[1]);
+      var vv3 = to_canvas_position(face[2]);
+
+      context.beginPath();
+
+      context.moveTo(vv1.x, vv1.y); 
+      context.lineTo(vv2.x, vv2.y); 
+      context.lineTo(vv3.x, vv3.y); 
+      context.lineTo(vv1.x, vv1.y); 
+
+      context.stroke();
     }
 
   },
