@@ -71,6 +71,12 @@ XYZWRenderer.prototype = {
         }
       }
     });
+    
+    var faceZ = function(face) {
+        return ( face[0].positionScreen.z + 
+            face[1].positionScreen.z + 
+            face[2].positionScreen.z ) / 3;
+    }
 
     var canvas = this.domElement;
     var context = canvas.getContext( '2d', {} );
@@ -82,6 +88,10 @@ XYZWRenderer.prototype = {
       return {x: canvas_x, y: canvas_y};
     }
 
+    renderList.sort( function(a, b) {
+      return faceZ(b) - faceZ(a);
+    });
+
     for (var v=0, vl=renderList.length; v < vl; v++) {
       var face = renderList[v];
       var vv1 = to_canvas_position(face[0]);
@@ -89,12 +99,12 @@ XYZWRenderer.prototype = {
       var vv3 = to_canvas_position(face[2]);
 
       context.beginPath();
-
       context.moveTo(vv1.x, vv1.y); 
       context.lineTo(vv2.x, vv2.y); 
       context.lineTo(vv3.x, vv3.y); 
-      context.lineTo(vv1.x, vv1.y); 
-
+      context.fillStyle = "blue";
+      context.closePath();
+      context.fill();
       context.stroke();
     }
 
