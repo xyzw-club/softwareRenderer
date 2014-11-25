@@ -38,18 +38,54 @@ XYZWRenderer.prototype = {
     return vertex;
   },
 
+  shade:  function(v1, v2, v3, lights, normalMatrix, matrixWorld) {
+      var cb = new THREE.Vector3();
+      var ab = new THREE.Vector3();
+      cb.subVectors( v1, v2 ).normalize();
+      ab.subVectors( v3, v2 ).normalize();
+      cb.cross( ab );
+
+      var normal = new THREE.Vector3().copy(cb);
+
+      // not at all sure if this is right
+      normal.normalize();
+      normal.applyMatrix4(matrixWorld);
+      normal.applyMatrix3(normalMatrix).normalize();
+
+      // ambient light
+      var ambient = new THREE.Color(0x020202);
+      var diffuse = new THREE.Color(0x827461);
+
+      for (var l=0, vl = lights.length; l < vl; l++) {
+        var light = lights[l];
+        var lightPosition = new THREE.Vector3().setFromMatrixPosition( light.matrixWorld ).normalize();
+        var lightWeight = Math.max(normal.dot( lightPosition ), 0.0);
+        ambient.add( new THREE.Color(0xffffff).multiplyScalar(lightWeight)); 
+      }
+      return diffuse.multiply(ambient);
+    },
   render: function(scene, camera) {
     var viewMatrix = new THREE.Matrix4(),
-    viewProjectionMatrix = new THREE.Matrix4();
+    viewProjectionMatrix = new THREE.Matrix4(),
+    normalMatrix = new THREE.Matrix3();
 
     scene.updateMatrixWorld();
+    camera.updateMatrixWorld();
 
     viewMatrix.copy(camera.matrixWorldInverse);
     viewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, viewMatrix);
+    normalMatrix.getNormalMatrix(camera.matrixWorldInverse);
 
-    renderList = [];
-
+    var renderList = [];
+    var lights = [];
     var _this = this;
+
+    scene.traverseVisible( function (object) {
+      if (object instanceof THREE.DirectionalLight) {
+        lights.push(object);
+      }
+    });
+
     scene.traverseVisible( function ( object ) {
       if (object instanceof THREE.Mesh) {
         var faces = object.geometry.faces;
@@ -61,12 +97,14 @@ XYZWRenderer.prototype = {
           var v2 = object.geometry.vertices[face.b];
           var v3 = object.geometry.vertices[face.c];
 
+          var faceColor = _this.shade(v1, v2, v3, lights, normalMatrix, object.matrixWorld);
+
           v1 = _this.projectVertex(v1, object.matrixWorld, viewProjectionMatrix);
           v2 = _this.projectVertex(v2, object.matrixWorld, viewProjectionMatrix);
           v3 = _this.projectVertex(v3, object.matrixWorld, viewProjectionMatrix);
 
           if (v1.visible || v2.visible || v3.visible) {
-            renderList.push([v1, v2, v3])
+            renderList.push([v1, v2, v3, faceColor]);
           }
         }
       }
@@ -76,7 +114,8 @@ XYZWRenderer.prototype = {
         return ( face[0].positionScreen.z + 
             face[1].positionScreen.z + 
             face[2].positionScreen.z ) / 3;
-    }
+    };
+
 
     var canvas = this.domElement;
     var context = canvas.getContext( '2d', {} );
@@ -86,7 +125,7 @@ XYZWRenderer.prototype = {
       var canvas_x = (vertex.positionScreen.x / 2.0 + 0.5) * canvas.width;
       var canvas_y = (vertex.positionScreen.y / -2.0 + 0.5) * canvas.height;
       return {x: canvas_x, y: canvas_y};
-    }
+    };
 
     renderList.sort( function(a, b) {
       return faceZ(b) - faceZ(a);
@@ -102,10 +141,9 @@ XYZWRenderer.prototype = {
       context.moveTo(vv1.x, vv1.y); 
       context.lineTo(vv2.x, vv2.y); 
       context.lineTo(vv3.x, vv3.y); 
-      context.fillStyle = "blue";
+      context.fillStyle = face[3].getStyle();
       context.closePath();
       context.fill();
-      context.stroke();
     }
 
   },
