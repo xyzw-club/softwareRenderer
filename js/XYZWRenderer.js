@@ -16,6 +16,7 @@ console.sample = function(arg,p) {
   }
 };
 
+
 Array.prototype.pushArray = function() {
   var toPush = this.concat.apply([], arguments);
   for (var i = 0, len = toPush.length; i < len; ++i) {
@@ -146,11 +147,18 @@ XYZWRenderer.prototype = {
       return b.z - a.z;
     });
 
-    for (var p=0, pl=pixels.length; p < pl; p++) {
-      var pixel = pixels[p];
-      this.context.fillStyle = pixel.color.getStyle();
-      this.context.fillRect(pixel.x,pixel.y,1,1);
-    }
+    var draw_pixel = function(index, stepsize) {
+      for (var p=index, pl=pixels.length, i=0; p < pl && i < stepsize; p++, i++) {
+        var pixel = pixels[p];
+        this.context.fillStyle = pixel.color.getStyle();
+        this.context.fillRect(pixel.x,pixel.y,1,1);
+      }
+      if (index < pixels.length) {
+        index = index + stepsize;
+        window.setTimeout(function () { draw_pixel.bind(_this)(index, stepsize);}, 100 );
+      }
+    };
+    draw_pixel.bind(_this)(0,8000);
   },
 
   clear_canvas: function() {
@@ -169,25 +177,7 @@ XYZWRenderer.prototype = {
     return colour;
   },
 
-  drawTriangle: function(v1, v2, v3) {
-    // calculate bounding box
-
-    var maxX = Math.ceil(Math.max(v1.x, Math.max(v2.x, v3.x)));
-    var minX = Math.floor(Math.min(v1.x, Math.min(v2.x, v3.x)));
-    var maxY = Math.ceil(Math.max(v1.y, Math.max(v2.y, v3.y)));
-    var minY = Math.floor(Math.min(v1.y, Math.min(v2.y, v3.y)));
-
-    var base = new THREE.Vector2(v1.x, v1.y);
-    var vv0 = new THREE.Vector2(v2.x, v2.y).sub(base);
-    var vv1 = new THREE.Vector2(v3.x, v3.y).sub(base);
-
-    face = new RenderableFace(v1, v2, v3);
-
-    pixels = [];
-    for (var x = minX; x <= maxX; x++)
-    {
-      for (var y = minY; y <= maxY; y++)
-      {
+  isInTriangle: function(base, vv0, vv1, x, y) {
         var vv2 = new THREE.Vector2(x,y).sub(base);
 
         var dot00 = vv0.dot(vv0);
@@ -202,9 +192,35 @@ XYZWRenderer.prototype = {
         var s = (dot11 * dot02 - dot01 * dot12) * invDenom; 
         var t = (dot00 * dot12 - dot01 * dot02) * invDenom; 
 
-        if ( (s >= 0) && (t >= 0) && (s + t <= 1))
+        var in_triangle = ( (s >= 0) && (t >= 0) && (s + t <= 1));
+        return {test: in_triangle, s:s, t:t };
+  },
+
+  drawTriangle: function(v1, v2, v3) {
+    // calculate bounding box
+
+    var maxX = Math.ceil(Math.max(v1.x, Math.max(v2.x, v3.x))) + 1.0;
+    var minX = Math.floor(Math.min(v1.x, Math.min(v2.x, v3.x))) - 1.0;
+    var maxY = Math.ceil(Math.max(v1.y, Math.max(v2.y, v3.y))) + 1.0;
+    var minY = Math.floor(Math.min(v1.y, Math.min(v2.y, v3.y))) - 1.0;
+
+    var base = new THREE.Vector2(v1.x, v1.y);
+    var vv0 = new THREE.Vector2(v2.x, v2.y).sub(base);
+    var vv1 = new THREE.Vector2(v3.x, v3.y).sub(base);
+
+    face = new RenderableFace(v1, v2, v3);
+
+    pixels = [];
+    for (var x = minX; x <= maxX; x++)
+    {
+      for (var y = minY; y <= maxY; y++)
+      {
+        var testpixel = this.isInTriangle(base, vv0, vv1, x, y);
+
+
+        if (testpixel.test) 
         { 
-          pixel = face.render(x,y,s,t,this.shadeFragment);  
+          pixel = face.render(x,y, testpixel.s, testpixel.t, this.shadeFragment);  
           pixels.push(pixel);
         }
       }
@@ -221,7 +237,7 @@ RenderableFace = function(v1, v2, v3) {
 
 
 RenderableFace.prototype = {
-  render: function(x,y,s,t,shader) {
+  render: function(x, y, s, t, shader) {
     var w = 1 - (s+t);
 
     var c1s = new THREE.Color().copy(this.v1.colour).multiplyScalar(w); // 1 - (s+t)
