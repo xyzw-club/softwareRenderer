@@ -3,6 +3,8 @@ XYZWRenderer = function ( parameters ) {
   this.domElement = document.createElement("canvas");
   this.width = this.domElement.width;
   this.height = this.domElement.height;
+  this.context = this.domElement.getContext( '2d', {} );
+  //this.context.translate(0.5,0.5);
 };
 
 console.sample = function(arg,p) {
@@ -139,8 +141,6 @@ XYZWRenderer.prototype = {
       pixels.pushArray(_this.drawTriangle(vv1, vv2, vv3));
     }
 
-    var canvas = this.domElement;
-    var context = canvas.getContext( '2d', {} );
 
     pixels.sort(function(a,b) {
       return b.z - a.z;
@@ -148,16 +148,14 @@ XYZWRenderer.prototype = {
 
     for (var p=0, pl=pixels.length; p < pl; p++) {
       var pixel = pixels[p];
-      context.fillStyle = pixel.color.getStyle();
-      context.fillRect(pixel.x,pixel.y,2,2);
+      this.context.fillStyle = pixel.color.getStyle();
+      this.context.fillRect(pixel.x,pixel.y,1,1);
     }
   },
 
   clear_canvas: function() {
-    var canvas = this.domElement;
-    var context = canvas.getContext( '2d', {} );
-    context.fillStyle = "black";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+    this.context.fillStyle = "black";
+    this.context.fillRect(0, 0, this.domElement.width, this.domElement.height);
   },
 
   to_canvas_position: function(vertex) {
@@ -174,10 +172,10 @@ XYZWRenderer.prototype = {
   drawTriangle: function(v1, v2, v3) {
     // calculate bounding box
 
-    var maxX = Math.max(v1.x, Math.max(v2.x, v3.x));
-    var minX = Math.min(v1.x, Math.min(v2.x, v3.x));
-    var maxY = Math.max(v1.y, Math.max(v2.y, v3.y));
-    var minY = Math.min(v1.y, Math.min(v2.y, v3.y));
+    var maxX = Math.ceil(Math.max(v1.x, Math.max(v2.x, v3.x)));
+    var minX = Math.floor(Math.min(v1.x, Math.min(v2.x, v3.x)));
+    var maxY = Math.ceil(Math.max(v1.y, Math.max(v2.y, v3.y)));
+    var minY = Math.floor(Math.min(v1.y, Math.min(v2.y, v3.y)));
 
     var base = new THREE.Vector2(v1.x, v1.y);
     var vv0 = new THREE.Vector2(v2.x, v2.y).sub(base);
