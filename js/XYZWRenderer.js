@@ -233,6 +233,8 @@ RenderableFace.prototype = {
     var z = this.v1.z * w + this.v2.z * s + this.v3.z * t;
 
     c1s.add(c2s).add(c3s);    
+
+    //var c = new THREE.Color().copy(this.v1.colour).add(this.v2.colour).add(this.v3.colour).multiplyScalar(0.333);
     return { x:x, y:y, z:z, color: shader(c1s) };
   }
 };
