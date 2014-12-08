@@ -1,12 +1,3 @@
-XYZWRenderer = function ( parameters ) {
-  this.parameters = parameters;
-  this.domElement = document.createElement("canvas");
-  this.width = this.domElement.width;
-  this.height = this.domElement.height;
-  this.context = this.domElement.getContext( '2d', {} );
-  //this.context.translate(0.5,0.5);
-};
-
 console.sample = function(arg,p) {
   if (p === undefined) {
     p = 0.0001;
@@ -23,46 +14,60 @@ Array.prototype.pushArray = function() {
   }
 };
 
-XYZWRenderer.prototype = {
+XYZWVertexShader = function(uniforms) {
+  this.ambient = uniforms.ambient;
+  this.diffuse = uniforms.diffuse;
+  this.lights = uniforms.lights;
+  this.cameraWorld = uniforms.cameraWorld;
+  this.specular = uniforms.specular;
+  this.shininess = uniforms.shininess;
+  this.modelMatrix = uniforms.modelMatrix;
+  this.viewProjectionMatrix = uniforms.viewProjectionMatrix;
+};
 
-  setSize: function(width, height) {
-    this.domElement.width = width;
-    this.domElement.height = height;
-    this.width = this.domElement.width;
-    this.height = this.domElement.height;
-  },
+XYZWVertexShader.prototype = {
 
-  calculateLighting: function(ambient, diffuse, lights, normalWorld, cameraWorld, specular, shininess) {
+  calculateLighting: function(normalWorld) {
     var specTotal = new THREE.Color(0x000000);
+    var ambient = new THREE.Color(this.ambient);
 
-    for (var l=0, vl = lights.length; l < vl; l++) {
-      var light = lights[l];
+    for (var l=0, vl = this.lights.length; l < vl; l++) {
+      var light = this.lights[l];
       if (light instanceof THREE.DirectionalLight) {
+
         var lightColour = light.color;
         var lightPosition = new THREE.Vector3().setFromMatrixPosition(light.matrixWorld).normalize();
         var lightWeight = Math.max(normalWorld.dot(lightPosition), 0.0);
         ambient.add( new THREE.Color(lightColour).multiplyScalar(lightWeight*light.intensity)); 
-        if (shininess > 0) {
-          var halfVector = lightPosition.add(new THREE.Vector3().setFromMatrixPosition(cameraWorld).normalize()).normalize();
+
+        if (this.shininess > 0) {
+          // this is ported straight from three.js's phong fragment shader
+          // https://github.com/mrdoob/three.js/issues/4363 - maybe someone
+          // understands it. 
+          var halfVector = lightPosition.add(new THREE.Vector3().setFromMatrixPosition(this.cameraWorld).normalize()).normalize();
           var normalToHalf = Math.max(normalWorld.dot(halfVector), 0.0);
-          var specWeight = Math.pow(normalToHalf, shininess);
-          specTotal.add(new THREE.Color(specular).multiplyScalar(specWeight * 2.0));
+          var specWeight = Math.max(Math.pow(normalToHalf, this.shininess), 0.0);
+          var inverseColor = new THREE.Color(1 - this.specular.r, 1 - this.specular.g, 1 - this.specular.b);
+          var specularNormalization = (this.shininess + 2.0) / 8.0;
+          var schlick = new THREE.Color(this.specular).add(inverseColor.multiplyScalar(Math.pow( Math.max(1 - lightPosition.dot(halfVector), 0.0), 5.0)));
+          specTotal.add(schlick.multiply(lightColour).multiplyScalar(specWeight).multiplyScalar(lightWeight).multiplyScalar(specularNormalization));
         }
+
       }
     }
-    return new THREE.Color(diffuse).multiply(ambient).add(specTotal);
+    return new THREE.Color(this.diffuse).multiply(ambient).add(specTotal);
   },
 
-  shadeVertex: function ( src, normal, modelMatrix, viewProjectionMatrix, lights, diffuse, cameraWorld, specular, shininess ) {
+  shade: function(attributes) {
     var vertex = new THREE.RenderableVertex();
-    vertex.position.set(src.x, src.y, src.z);
+    vertex.position.set(attributes.position.x, attributes.position.y, attributes.position.z);
 
     var position = vertex.position;
     var positionWorld = vertex.positionWorld;
     var positionScreen = vertex.positionScreen;
 
-    positionWorld.copy( position ).applyMatrix4( modelMatrix );
-    positionScreen.copy( positionWorld ).applyMatrix4( viewProjectionMatrix );
+    positionWorld.copy( position ).applyMatrix4( this.modelMatrix );
+    positionScreen.copy( positionWorld ).applyMatrix4( this.viewProjectionMatrix );
 
     var invW = 1 / positionScreen.w;
 
@@ -74,17 +79,41 @@ XYZWRenderer.prototype = {
       positionScreen.y >= - 1 && positionScreen.y <= 1 &&
       positionScreen.z >= - 1 && positionScreen.z <= 1;
 
-    var transpose_inverse = new THREE.Matrix4().getInverse(modelMatrix).transpose();
-    vertex.normalWorld = new THREE.Vector3().copy(normal).applyMatrix4(transpose_inverse).normalize();
+    var transpose_inverse = new THREE.Matrix4().getInverse(this.modelMatrix).transpose();
+    vertex.normalWorld = new THREE.Vector3().copy(attributes.normal).applyMatrix4(transpose_inverse).normalize();
 
-    var ambient = new THREE.Color(0x000000);
-
-    vertex.colour = this.calculateLighting(ambient, diffuse, lights, 
-        vertex.normalWorld, cameraWorld, specular, shininess);
+    vertex.colour = this.calculateLighting(vertex.normalWorld);
 
     return vertex;
   },
+};
 
+XYZWFragmentShader = function( uniforms) {
+};
+
+XYZWFragmentShader.prototype = {
+  shade: function(varyings) {
+    return varyings.colour;
+  }
+};
+
+
+XYZWRenderer = function ( parameters ) {
+  this.parameters = parameters;
+  this.domElement = document.createElement("canvas");
+  this.width = this.domElement.width;
+  this.height = this.domElement.height;
+  this.context = this.domElement.getContext( '2d', {} );
+};
+
+XYZWRenderer.prototype = {
+
+  setSize: function(width, height) {
+    this.domElement.width = width;
+    this.domElement.height = height;
+    this.width = this.domElement.width;
+    this.height = this.domElement.height;
+  },
 
   render: function(scene, camera) {
     var viewMatrix = new THREE.Matrix4(),
@@ -95,57 +124,55 @@ XYZWRenderer.prototype = {
     viewMatrix.copy(camera.matrixWorldInverse);
     viewProjectionMatrix.multiplyMatrices(camera.projectionMatrix, viewMatrix);
 
-    renderList = [];
-    var _this = this;
-
-    var shaded_vertex = function(idx, normal, object, lights) {
-      return _this.shadeVertex(object.geometry.vertices[idx], normal, 
-          object.matrixWorld, viewProjectionMatrix, lights, object.material.color, camera.matrixWorld,
-          object.material.specular, object.material.shininess);
-    };
-
     var lights = [];
-
     scene.traverse( function (object) {
       if (object instanceof THREE.DirectionalLight) {
         lights.push(object);
       }
     });
 
+    var pixels = [];
     scene.traverse( function ( object ) {
       if (object instanceof THREE.Mesh) {
+
+        var uniforms = {
+          modelMatrix: object.matrixWorld, 
+          viewProjectionMatrix: viewProjectionMatrix,
+          cameraWorld: camera.matrixWorld,
+          lights: lights,
+          ambient: new THREE.Color(0x000000),
+          diffuse: object.material.color,
+          specular: object.material.specular,
+          shininess: object.material.shininess
+        };
+
+        var vertex_shader = new XYZWVertexShader(uniforms);
+        var fragment_shader = new XYZWFragmentShader(uniforms);
+
         var faces = object.geometry.faces;
 
         for (var v=0, vl=faces.length; v < vl; v++) {
           var face = faces[v];
 
-          var a = shaded_vertex(face.a, face.vertexNormals[0], object, lights);
-          var b = shaded_vertex(face.b, face.vertexNormals[1], object, lights);
-          var c = shaded_vertex(face.c, face.vertexNormals[2], object, lights);
+          var a = vertex_shader.shade({position: object.geometry.vertices[face.a], normal: face.vertexNormals[0]});
+          var b = vertex_shader.shade({position: object.geometry.vertices[face.b], normal: face.vertexNormals[1]});
+          var c = vertex_shader.shade({position: object.geometry.vertices[face.c], normal: face.vertexNormals[2]});
 
           if (a.visible || b.visible || c.visible) {
-            renderList.push([a,b,c]);
+            var vv1 = this.to_canvas_position(a);
+            var vv2 = this.to_canvas_position(b);
+            var vv3 = this.to_canvas_position(c);
+            pixels.pushArray(this.drawTriangle(vv1, vv2, vv3, fragment_shader));
           }
         }
       }
-    });
-
-    this.clear_canvas();
-
-    var pixels = [];
-    for (var v=0, vl=renderList.length; v < vl; v++) {
-      var face = renderList[v];
-      var vv1 = this.to_canvas_position(face[0]);
-      var vv2 = this.to_canvas_position(face[1]);
-      var vv3 = this.to_canvas_position(face[2]);
-      pixels.pushArray(_this.drawTriangle(vv1, vv2, vv3));
-    }
-
+    }.bind(this));
 
     pixels.sort(function(a,b) {
       return b.z - a.z;
     });
 
+    this.clear_canvas();
     for (var p=0, pl=pixels.length; p < pl; p++) {
       var pixel = pixels[p];
       this.context.fillStyle = pixel.color.getStyle();
@@ -165,46 +192,45 @@ XYZWRenderer.prototype = {
     return vertex; 
   },
 
-  shadeFragment: function(colour) {
-    return colour;
+  isInTriangle: function(base, vv0, vv1, x, y) {
+    var vv2 = new THREE.Vector2(x,y).sub(base);
+
+    var dot00 = vv0.dot(vv0);
+    var dot01 = vv0.dot(vv1);
+    var dot02 = vv0.dot(vv2);
+    var dot11 = vv1.dot(vv1);
+    var dot12 = vv1.dot(vv2);
+
+    var invDenom = 1  / (dot00 * dot11 - dot01 * dot01);
+
+    var s = (dot11 * dot02 - dot01 * dot12) * invDenom; 
+    var t = (dot00 * dot12 - dot01 * dot02) * invDenom; 
+
+    var inTriangle = ( (s >= 0) && (t >= 0) && (s + t <= 1));
+    return {test: inTriangle, s: s, t: t };
   },
 
-  drawTriangle: function(v1, v2, v3) {
-    // calculate bounding box
-
-    var maxX = Math.ceil(Math.max(v1.x, Math.max(v2.x, v3.x)));
-    var minX = Math.floor(Math.min(v1.x, Math.min(v2.x, v3.x)));
-    var maxY = Math.ceil(Math.max(v1.y, Math.max(v2.y, v3.y)));
-    var minY = Math.floor(Math.min(v1.y, Math.min(v2.y, v3.y)));
+  drawTriangle: function(v1, v2, v3, shader) {
+    var maxX = Math.ceil(Math.max(v1.x, Math.max(v2.x, v3.x))) + 1.0;
+    var minX = Math.floor(Math.min(v1.x, Math.min(v2.x, v3.x))) - 1.0;
+    var maxY = Math.ceil(Math.max(v1.y, Math.max(v2.y, v3.y))) + 1.0;
+    var minY = Math.floor(Math.min(v1.y, Math.min(v2.y, v3.y))) - 1.0;
 
     var base = new THREE.Vector2(v1.x, v1.y);
     var vv0 = new THREE.Vector2(v2.x, v2.y).sub(base);
     var vv1 = new THREE.Vector2(v3.x, v3.y).sub(base);
 
-    face = new RenderableFace(v1, v2, v3);
+    face = new RenderingFace(v1, v2, v3);
 
     pixels = [];
     for (var x = minX; x <= maxX; x++)
     {
       for (var y = minY; y <= maxY; y++)
       {
-        var vv2 = new THREE.Vector2(x,y).sub(base);
-
-        var dot00 = vv0.dot(vv0);
-        var dot01 = vv0.dot(vv1);
-        var dot02 = vv0.dot(vv2);
-        var dot11 = vv1.dot(vv1);
-        var dot12 = vv1.dot(vv2);
-
-        var invDenom = 1  / (dot00 * dot11 - dot01 * dot01);
-
-
-        var s = (dot11 * dot02 - dot01 * dot12) * invDenom; 
-        var t = (dot00 * dot12 - dot01 * dot02) * invDenom; 
-
-        if ( (s >= 0) && (t >= 0) && (s + t <= 1))
+        var testpixel = this.isInTriangle(base, vv0, vv1, x, y);
+        if (testpixel.test) 
         { 
-          pixel = face.render(x,y,s,t,this.shadeFragment);  
+          pixel = face.shade_pixel(x, y, testpixel.s, testpixel.t, shader);  
           pixels.push(pixel);
         }
       }
@@ -213,27 +239,36 @@ XYZWRenderer.prototype = {
   }
 };
 
-RenderableFace = function(v1, v2, v3) {
+RenderingFace = function(v1, v2, v3) {
   this.v1 = v1;
   this.v2 = v2;
   this.v3 = v3;
 };
 
+RenderingFace.prototype = {
 
-RenderableFace.prototype = {
-  render: function(x,y,s,t,shader) {
+  interpolateObject: function(attr, s, t) {
     var w = 1 - (s+t);
-
-    var c1s = new THREE.Color().copy(this.v1.colour).multiplyScalar(w); // 1 - (s+t)
-    var c2s = new THREE.Color().copy(this.v2.colour).multiplyScalar(s); // 1 - (t+w)
-    var c3s = new THREE.Color().copy(this.v3.colour).multiplyScalar(t); // 1 - (w+s)
-
-    var z = this.v1.z * w + this.v2.z * s + this.v3.z * t;
-
+    var c1s = this.v1[attr].clone().multiplyScalar(w); // 1 - (s+t)
+    var c2s = this.v2[attr].clone().multiplyScalar(s); // 1 - (t+w)
+    var c3s = this.v3[attr].clone().multiplyScalar(t); // 1 - (s+w)
     c1s.add(c2s).add(c3s);    
+    return c1s;
+  },
 
-    //var c = new THREE.Color().copy(this.v1.colour).add(this.v2.colour).add(this.v3.colour).multiplyScalar(0.333);
-    return { x:x, y:y, z:z, color: shader(c1s) };
+  interpolateScalar: function(attr, s, t) {
+    var w = 1 - (s+t);
+    return this.v1[attr] * w + this.v2[attr] * s + this.v3[attr] * t;
+  },
+
+  shade_pixel: function(x, y, s, t, shader) {
+    var color = shader.shade({ colour: this.interpolateObject("colour", s, t)});
+    return { 
+      x: x, 
+      y: y, 
+      z: this.interpolateScalar("z", s, t), 
+      color: color 
+    }; 
   }
 };
 
