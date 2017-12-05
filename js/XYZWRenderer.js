@@ -41,12 +41,12 @@ XYZWRenderer.prototype = {
         var lightColour = light.color;
         var lightPosition = new THREE.Vector3().setFromMatrixPosition(light.matrixWorld).normalize();
         var lightWeight = Math.max(normalWorld.dot(lightPosition), 0.0);
-        ambient.add( new THREE.Color(lightColour).multiplyScalar(lightWeight*light.intensity)); 
+        ambient.add( new THREE.Color(lightColour).multiplyScalar(lightWeight*light.intensity));
         if (shininess > 0) {
           var halfVector = lightPosition.add(new THREE.Vector3().setFromMatrixPosition(cameraWorld).normalize()).normalize();
           var normalToHalf = Math.max(normalWorld.dot(halfVector), 0.0);
-          var specWeight = Math.pow(normalToHalf, shininess);
-          specTotal.add(new THREE.Color(specular).multiplyScalar(specWeight * 2.0));
+          var specWeight = Math.pow(normalToHalf, shininess / 4.0);
+          specTotal.add(new THREE.Color(specular).multiplyScalar(specWeight * 10.0));
         }
       }
     }
@@ -77,9 +77,8 @@ XYZWRenderer.prototype = {
     var transpose_inverse = new THREE.Matrix4().getInverse(modelMatrix).transpose();
     vertex.normalWorld = new THREE.Vector3().copy(normal).applyMatrix4(transpose_inverse).normalize();
 
-    var ambient = new THREE.Color(0x000000);
 
-    vertex.colour = this.calculateLighting(ambient, diffuse, lights, 
+    vertex.colour = this.calculateLighting(new THREE.Color(0x333333), diffuse, lights,
         vertex.normalWorld, cameraWorld, specular, shininess);
 
     return vertex;
@@ -99,7 +98,7 @@ XYZWRenderer.prototype = {
     var _this = this;
 
     var shaded_vertex = function(idx, normal, object, lights) {
-      return _this.shadeVertex(object.geometry.vertices[idx], normal, 
+      return _this.shadeVertex(object.geometry.vertices[idx], normal,
           object.matrixWorld, viewProjectionMatrix, lights, object.material.color, camera.matrixWorld,
           object.material.specular, object.material.shininess);
     };
@@ -162,7 +161,7 @@ XYZWRenderer.prototype = {
     vertex.x = (vertex.positionScreen.x / 2.0 + 0.5) * this.domElement.width;
     vertex.y = (vertex.positionScreen.y / -2.0 + 0.5) * this.domElement.height;
     vertex.z = vertex.positionScreen.z;
-    return vertex; 
+    return vertex;
   },
 
   shadeFragment: function(colour) {
@@ -199,12 +198,12 @@ XYZWRenderer.prototype = {
         var invDenom = 1  / (dot00 * dot11 - dot01 * dot01);
 
 
-        var s = (dot11 * dot02 - dot01 * dot12) * invDenom; 
-        var t = (dot00 * dot12 - dot01 * dot02) * invDenom; 
+        var s = (dot11 * dot02 - dot01 * dot12) * invDenom;
+        var t = (dot00 * dot12 - dot01 * dot02) * invDenom;
 
         if ( (s >= 0) && (t >= 0) && (s + t <= 1))
-        { 
-          pixel = face.render(x,y,s,t,this.shadeFragment);  
+        {
+          pixel = face.render(x,y,s,t,this.shadeFragment);
           pixels.push(pixel);
         }
       }
@@ -230,10 +229,9 @@ RenderableFace.prototype = {
 
     var z = this.v1.z * w + this.v2.z * s + this.v3.z * t;
 
-    c1s.add(c2s).add(c3s);    
+    c1s.add(c2s).add(c3s);
 
     //var c = new THREE.Color().copy(this.v1.colour).add(this.v2.colour).add(this.v3.colour).multiplyScalar(0.333);
     return { x:x, y:y, z:z, color: shader(c1s) };
   }
 };
-
